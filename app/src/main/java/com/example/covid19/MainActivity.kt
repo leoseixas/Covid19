@@ -1,86 +1,118 @@
 package com.example.covid19
 
-import android.content.Context
 
+import android.os.AsyncTask
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
-
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
 import androidx.recyclerview.widget.LinearLayoutManager
 import kotlinx.android.synthetic.main.activity_main.*
-import org.json.JSONArray
-import java.io.IOException
-import java.io.InputStream
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+
 
 
 class MainActivity : AppCompatActivity() {
 
-  var lista = arrayListOf<Boletim>()
-  val adapter = BoletimAdapter(lista)
+  var boletinsList = arrayListOf<Boletim>()
+  val adapter = BoletimAdapter(boletinsList)
+  private var asyncTask : BoletimTask? =null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContentView(R.layout.activity_main)
-    readJson(this)
+    setSupportActionBar(findViewById(R.id.my_tool))
+    carregarDados()
     initRecycleView()
 
   }
 
 
-  fun readJson(context: Context){
-    var json: String?=null
-    try {
-      val inputStream: InputStream= context.assets.open("data.json")
-      json = inputStream.bufferedReader().use { it.readText() }
-      var jsonArray =JSONArray(json)
-      for (i in 0 .. jsonArray.length()-1){
-        var js = jsonArray.getJSONObject(i)
-        val suspeitos = js.optInt("Suspeitos")
-        val confirmados = js.optInt("Confirmados")
-        val descartados = js.optInt("Descartados")
-        val monitoramento = js.optInt("Monitoramento")
-        val curados = js.optInt("Curados")
-        val sDomiciliar = js.optInt("Sdomiciliar")
-        val sHospitalar = js.optInt("Shopitalar")
-        val cHospitalar = js.optInt("Chopitalar")
-        val mortes = js.optInt("mortes")
-        val data = formatarData(js.optString("boletim").substring(0,10))
-        val hora = formatarHora(js.optString("boletim").substring(11,23))
-
-        val boletim =Boletim(suspeitos, confirmados, descartados, monitoramento,
-          curados, sDomiciliar, sHospitalar, mortes, cHospitalar, data, hora)
-
-        lista.add(boletim)
-
-      }
-    }
-    catch (e : IOException){
-    Log.e("Erro", "Impossivel ler JSON")
-    }
-
-  }
-  fun formatarData(data: String): String {
-    val diaString =data
-    var formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-    var date = LocalDate.parse(diaString)
-    var formattedDate = date.format(formatter)
-    return formattedDate
-  }
-
-  fun formatarHora(data: String): String{
-    val horaString = data
-    val formatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-    val date = LocalTime.parse(horaString)
-    val formattedHora = date.format(formatter)
-    return formattedHora
-  }
-
   fun initRecycleView(){
     recycler.adapter=adapter
     val layout = LinearLayoutManager(this)
     recycler.layoutManager=layout
+  }
+
+  fun showProgress(show: Boolean){
+    if(show){
+      txtMsg.text="Carregando"
+    }else{
+      txtMsg.visibility = if(show) View.VISIBLE else View.GONE
+      progressBar.visibility = if(show) View.VISIBLE else View.GONE
+    }
+  }
+
+  fun carregarDados(){
+    boletinsList.clear()
+    if (boletinsList.isNotEmpty()){
+      showProgress(false)
+    }else{
+      if (asyncTask==null){
+        if (BoletimHttp.hasConnection(this)){
+//          startDownload()
+          if  (asyncTask?.status!=AsyncTask.Status.RUNNING){
+            asyncTask = BoletimTask()
+            asyncTask?.execute()
+          }
+        }else{
+          progressBar.visibility= View.GONE
+          txtMsg.text = "Erro"
+        }
+      }else if (asyncTask?.status==AsyncTask.Status.RUNNING){
+        showProgress(true)
+      }
+    }
+  }
+
+
+
+  private fun updateBoletins(result: List<Boletim>){
+    if(result!=null){
+      boletinsList.clear()
+      boletinsList.addAll(result.reversed())
+    }else{
+      txtMsg.text = "Erro ao Carregar"
+    }
+    adapter.notifyDataSetChanged()
+    asyncTask=null
+  }
+
+  inner class BoletimTask: AsyncTask<Void,Void,List<Boletim>?>(){
+    override fun onPreExecute() {
+      super.onPreExecute()
+      showProgress(true)
+    }
+
+    override fun doInBackground(vararg params: Void?): List<Boletim>? {
+      return BoletimHttp.loadBoletim()
+    }
+
+    override fun onPostExecute(result: List<Boletim>?) {
+      super.onPostExecute(result)
+      showProgress(false)
+      if (result != null) {
+        updateBoletins(result)
+      }
+    }
+
+  }
+
+  override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+    menuInflater.inflate(R.menu.menu,menu)
+    return super.onCreateOptionsMenu(menu)
+  }
+
+  override fun onOptionsItemSelected(item: MenuItem)= when (item.itemId) {
+    R.id.menu_refresh ->{
+      carregarDados()
+      Log.e("Erro","carregando dados")
+      true
+    }
+    else->{
+      super.onOptionsItemSelected(item)
+    }
   }
 
 }
